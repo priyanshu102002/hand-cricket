@@ -110,6 +110,7 @@ function App() {
         pakistanScore={gameState.pakistanScore} 
         status={gameState.status}
         target={gameState.target}
+        venue={gameState.venue}
       />
 
       {/* AI Coach Tip */}

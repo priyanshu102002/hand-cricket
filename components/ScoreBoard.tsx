@@ -1,20 +1,41 @@
 import React from 'react';
 import { TEAMS } from '../constants';
-import { GameStatus } from '../types';
+import { GameStatus, Venue } from '../types';
 
 interface ScoreBoardProps {
   indiaScore: number;
   pakistanScore: number;
   status: GameStatus;
   target: number | null;
+  venue?: Venue | null;
 }
 
-const ScoreBoard: React.FC<ScoreBoardProps> = ({ indiaScore, pakistanScore, status, target }) => {
+const ScoreBoard: React.FC<ScoreBoardProps> = ({ indiaScore, pakistanScore, status, target, venue }) => {
   const isIndiaBatting = status === GameStatus.INNINGS_1;
   const isPakistanBatting = status === GameStatus.INNINGS_2;
 
   return (
     <section className="w-full bg-slate-800 p-4 rounded-2xl shadow-xl border border-slate-700 mb-6" aria-label="Scoreboard">
+      
+      {/* Venue Header (Google Maps Grounding) */}
+      {venue && (
+          <div className="w-full text-center mb-4 border-b border-slate-700 pb-2">
+            <p className="text-xs text-slate-400 uppercase tracking-widest">Live from</p>
+            {venue.url ? (
+                <a 
+                    href={venue.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-sm font-bold text-blue-300 hover:text-blue-200 hover:underline flex items-center justify-center gap-1"
+                >
+                    📍 {venue.name} <span className="text-[10px] opacity-70">↗</span>
+                </a>
+            ) : (
+                <p className="text-sm font-bold text-slate-300">📍 {venue.name}</p>
+            )}
+          </div>
+      )}
+
       <div className="flex justify-between items-center">
         {/* India Side */}
         <div className={`flex flex-col items-center flex-1 ${isIndiaBatting ? 'opacity-100 scale-105 transition-transform' : 'opacity-70'}`}>

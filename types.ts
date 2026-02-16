@@ -18,6 +18,11 @@ export interface BallOutcome {
   commentary: string;
 }
 
+export interface Venue {
+  name: string;
+  url?: string;
+}
+
 export interface GameState {
   status: GameStatus;
   indiaScore: number;
@@ -26,4 +31,5 @@ export interface GameState {
   balls: BallOutcome[];
   winner: Player | null;
   lastBall: BallOutcome | null;
+  venue: Venue | null;
 }

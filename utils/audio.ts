@@ -47,6 +47,54 @@ const playTone = (freq: number, type: OscillatorType, duration: number, vol: num
   }
 };
 
+// --- PCM Decoding for Gemini TTS ---
+
+function decodeBase64(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodePCM(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number = 24000,
+  numChannels: number = 1
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+export const playAICommentary = async (base64Audio: string) => {
+  const ctx = getContext();
+  if (!ctx) return;
+
+  try {
+    const pcmData = decodeBase64(base64Audio);
+    const buffer = await decodePCM(pcmData, ctx);
+    
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start();
+  } catch (e) {
+    console.error("Failed to play AI audio", e);
+  }
+};
+
 export const playSound = {
   click: () => playTone(800, 'sine', 0.1, 0.05),
   
