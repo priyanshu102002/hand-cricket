@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { GameState, GameStatus, BallOutcome, Player } from '../types';
 import { getRandomCommentary } from '../constants';
 import { playSound } from '../utils/audio';
@@ -18,8 +18,16 @@ export const useGameLogic = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [coachTip, setCoachTip] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const isMounted = useRef(true);
 
-  // LOGIC TO FAVOR INDIA BUT CAP SCORE < 100
+  // Cleanup on unmount to prevent memory leaks/state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // RIGGING LOGIC: India wins, score < 100
   const getComputerMove = useCallback((
     playerMove: number, 
     currentBatter: Player, 
@@ -31,60 +39,84 @@ export const useGameLogic = () => {
 
     // SCENARIO 1: User is Batting (India)
     if (currentBatter === 'India') {
-      // CAP LOGIC: If score is high (>90), CPU becomes deadly to prevent crossing 100 easily
-      if (indiaScore >= 92) {
-          // 80% chance to guess the player's move (Cheat to keep score < 100)
-          if (Math.random() < 0.8) return playerMove;
+      // 1. Cap Score Logic: Aggressively prevent score > 95
+      if (indiaScore >= 95) {
+         // Force wicket 100% to keep score under 100 (assuming max 6 runs per ball, buffer needed)
+         return playerMove; 
+      }
+      // Soft Cap: Start making it hard > 85
+      if (indiaScore > 85) {
+         // 60% chance to force wicket
+         if (Math.random() < 0.6) return playerMove;
+         // Else random
+         return cpuMove;
       }
       
-      // Protection Logic (Early Game)
+      // 2. Protection Logic (Early Game fun)
       if (cpuMove === playerMove) {
-          // If score < 40, 95% protection
-          if (indiaScore < 40 && Math.random() < 0.95) {
+          // If score < 40, 90% protection (User feels lucky)
+          if (indiaScore < 40 && Math.random() < 0.9) {
              return (playerMove % 6) + 1;
           }
-          // If score 40-80, 70% protection
-          else if (indiaScore < 80 && Math.random() < 0.70) {
+          // If score 40-85, 60% protection
+          else if (indiaScore <= 85 && Math.random() < 0.6) {
              return (playerMove % 6) + 1;
           }
-          // If score > 80, No protection (Let wickets fall)
       }
     } 
-    // SCENARIO 2: CPU is Batting (Pakistan)
-    else if (currentBatter === 'Pakistan') {
-        if (target !== null) {
-            const runsNeeded = target - pakistanScore;
-            
-            // Critical Wicket Taking: If Pakistan is close or India has a low score
-            if (runsNeeded <= 12 || (target < 50 && Math.random() < 0.3)) {
-               return playerMove; 
-            }
+    // SCENARIO 2: CPU is Batting (Pakistan) - User is Bowling
+    else if (currentBatter === 'Pakistan' && target !== null) {
+        const runsNeeded = target - pakistanScore;
+        
+        // 1. KILL SWITCH: If Pakistan is about to win (needs <= 6 runs), they MUST get out.
+        if (runsNeeded <= 6) {
+           return playerMove; // Matches user move -> OUT
+        }
 
-            // General difficulty: 40% chance to get out randomly
-            if (Math.random() < 0.4) {
-                return playerMove;
-            }
+        // 2. Tension Builder: If runs needed 7-15, make it 50/50
+        if (runsNeeded <= 15) {
+            if (Math.random() < 0.5) return playerMove; // 50% chance of wicket
+            // Else let random happen (they might score or get out naturally)
+            return cpuMove;
+        }
+
+        // 3. Early Chase: Let them play to build tension (runs needed > 15)
+        // Only 10% chance of forced wicket, otherwise random.
+        // This lets Pakistan score and "play a bit more".
+        if (Math.random() < 0.1) {
+            return playerMove;
         }
     }
     return cpuMove;
   }, []);
 
-  const updateCoachTip = async (newState: GameState, isOut: boolean) => {
+  const updateCoachTip = useCallback(async (newState: GameState, isOut: boolean) => {
+    if (!isMounted.current) return;
+    
     const ballsBowled = newState.balls.length;
+    // Efficiency: Only check coach tip every 6 balls or on wicket
     const isEndOfOver = ballsBowled > 0 && ballsBowled % 6 === 0;
 
     if (isOut || isEndOfOver) {
         setIsAiLoading(true);
-        const tip = await generateCoachTip(newState);
-        if (tip) setCoachTip(tip);
-        setIsAiLoading(false);
+        try {
+          const tip = await generateCoachTip(newState);
+          if (isMounted.current && tip) setCoachTip(tip);
+        } catch (e) {
+          console.error("Coach tip error", e);
+        } finally {
+          if (isMounted.current) setIsAiLoading(false);
+        }
     }
-  };
+  }, []);
 
   const playBall = useCallback(async (userMove: number) => {
-    playSound.click();
+    try {
+      playSound.click();
+    } catch (e) { /* Ignore audio errors */ }
 
     setGameState(prevState => {
+      // Validation to prevent playing when game is over
       if (prevState.status !== GameStatus.INNINGS_1 && prevState.status !== GameStatus.INNINGS_2) {
         return prevState;
       }
@@ -105,11 +137,16 @@ export const useGameLogic = () => {
       const isOut = batterMove === bowlerMove;
       const runsScored = isOut ? 0 : batterMove;
 
-      // Audio Feedback
-      if (isOut) setTimeout(() => playSound.wicket(), 100);
-      else if (runsScored >= 4) setTimeout(() => runsScored === 6 ? playSound.six() : playSound.four(), 100);
-      else setTimeout(() => playSound.hit(), 100);
+      // Audio Feedback (Fire and forget, don't await)
+      setTimeout(() => {
+        try {
+          if (isOut) playSound.wicket();
+          else if (runsScored >= 4) runsScored === 6 ? playSound.six() : playSound.four();
+          else playSound.hit();
+        } catch (e) { console.error("Sound error", e); }
+      }, 50); // Reduced delay for snappier feel
 
+      // Get local commentary immediately
       const commentary = getRandomCommentary(runsScored, isOut);
 
       const newBall: BallOutcome = {
@@ -140,14 +177,15 @@ export const useGameLogic = () => {
             nextTarget = nextIndiaScore + 1;
         }
       } else if (prevState.status === GameStatus.INNINGS_2) {
+        // Safety check: If for some reason Pakistan passes target (should be impossible via getComputerMove)
         if (nextPakistanScore >= (prevState.target || 0)) {
             nextStatus = GameStatus.GAME_OVER;
             nextWinner = 'Pakistan';
-            setTimeout(() => playSound.win(), 500);
+            setTimeout(() => { try { playSound.win(); } catch(e){} }, 500);
         } else if (isOut) {
             nextStatus = GameStatus.GAME_OVER;
             nextWinner = 'India';
-            setTimeout(() => playSound.win(), 500);
+            setTimeout(() => { try { playSound.win(); } catch(e){} }, 500);
         }
       }
 
@@ -162,18 +200,21 @@ export const useGameLogic = () => {
         winner: nextWinner
       };
 
-      // AI Commentary Trigger (20% chance)
+      // AI Commentary Trigger (20% chance) - Fire and forget
       if (Math.random() < 0.2) {
         generateAICommentary(currentBatter, currentBowler, runsScored, isOut, 
           currentBatter === 'India' ? `Score: ${nextIndiaScore}` : `Chase: ${nextPakistanScore}/${nextTarget}`
         ).then(aiText => {
-          if (aiText) {
-            setGameState(prev => ({
-              ...prev,
-              lastBall: prev.lastBall ? { ...prev.lastBall, commentary: aiText } : null
-            }));
+          if (isMounted.current && aiText) {
+            setGameState(prev => {
+                if (!prev.lastBall) return prev;
+                return {
+                    ...prev,
+                    lastBall: { ...prev.lastBall, commentary: aiText }
+                };
+            });
           }
-        });
+        }).catch(err => console.debug("AI Commentary skipped", err));
       }
 
       // Coach Tip Trigger
@@ -183,10 +224,10 @@ export const useGameLogic = () => {
 
       return nextState;
     });
-  }, [getComputerMove]);
+  }, [getComputerMove, updateCoachTip]);
 
   const startInnings2 = useCallback(() => {
-    playSound.click();
+    try { playSound.click(); } catch(e) {}
     setGameState(prev => ({
         ...prev,
         status: GameStatus.INNINGS_2,
@@ -196,19 +237,19 @@ export const useGameLogic = () => {
   }, []);
 
   const restartGame = useCallback(() => {
-    playSound.click();
+    try { playSound.click(); } catch(e) {}
     setGameState({ ...INITIAL_STATE, status: GameStatus.INNINGS_1 });
     setCoachTip(null);
   }, []);
 
   const startGame = useCallback(() => {
-    playSound.click();
+    try { playSound.click(); } catch(e) {}
     setGameState({ ...INITIAL_STATE, status: GameStatus.INNINGS_1 });
     setCoachTip("Welcome to the match! Start by building a solid inning.");
   }, []);
 
   const goToMenu = useCallback(() => {
-      playSound.click();
+      try { playSound.click(); } catch(e) {}
       setGameState(INITIAL_STATE);
       setCoachTip(null);
   }, []);
