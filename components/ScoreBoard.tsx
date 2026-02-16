@@ -12,24 +12,23 @@ interface ScoreBoardProps {
 const ScoreBoard: React.FC<ScoreBoardProps> = ({ indiaScore, pakistanScore, status, target }) => {
   const isIndiaBatting = status === GameStatus.INNINGS_1;
   const isPakistanBatting = status === GameStatus.INNINGS_2;
-  const isGameOver = status === GameStatus.GAME_OVER;
 
   return (
-    <div className="w-full bg-slate-800 p-4 rounded-2xl shadow-xl border border-slate-700 mb-6">
+    <section className="w-full bg-slate-800 p-4 rounded-2xl shadow-xl border border-slate-700 mb-6" aria-label="Scoreboard">
       <div className="flex justify-between items-center">
         {/* India Side */}
         <div className={`flex flex-col items-center flex-1 ${isIndiaBatting ? 'opacity-100 scale-105 transition-transform' : 'opacity-70'}`}>
-          <span className="text-4xl mb-1">{TEAMS.INDIA.flag}</span>
+          <span className="text-4xl mb-1" role="img" aria-label="India Flag">{TEAMS.INDIA.flag}</span>
           <h3 className={`font-bold uppercase tracking-wider ${TEAMS.INDIA.color}`}>India</h3>
-          <p className="text-3xl font-bold mt-1">{indiaScore}{status === GameStatus.INNINGS_1 ? '' : (status === GameStatus.MENU ? '' : '')}</p>
+          <p className="text-3xl font-bold mt-1" aria-label={`India Score: ${indiaScore}`}>{indiaScore}</p>
           {isIndiaBatting && <span className="text-xs text-blue-300 animate-pulse mt-1">Batting</span>}
         </div>
 
         {/* VS / Status */}
         <div className="px-4 flex flex-col items-center justify-center">
-          <div className="text-slate-500 font-bold text-xl">VS</div>
+          <div className="text-slate-500 font-bold text-xl" aria-hidden="true">VS</div>
           {target && (
-            <div className="mt-2 bg-slate-900 px-3 py-1 rounded text-xs text-yellow-400 border border-yellow-400/30">
+            <div className="mt-2 bg-slate-900 px-3 py-1 rounded text-xs text-yellow-400 border border-yellow-400/30" role="status">
               Target: {target}
             </div>
           )}
@@ -37,15 +36,15 @@ const ScoreBoard: React.FC<ScoreBoardProps> = ({ indiaScore, pakistanScore, stat
 
         {/* Pakistan Side */}
         <div className={`flex flex-col items-center flex-1 ${isPakistanBatting ? 'opacity-100 scale-105 transition-transform' : 'opacity-70'}`}>
-          <span className="text-4xl mb-1">{TEAMS.PAKISTAN.flag}</span>
+          <span className="text-4xl mb-1" role="img" aria-label="Pakistan Flag">{TEAMS.PAKISTAN.flag}</span>
           <h3 className={`font-bold uppercase tracking-wider ${TEAMS.PAKISTAN.color}`}>Pakistan</h3>
-          <p className="text-3xl font-bold mt-1">{pakistanScore}</p>
+          <p className="text-3xl font-bold mt-1" aria-label={`Pakistan Score: ${pakistanScore}`}>{pakistanScore}</p>
           {isPakistanBatting && <span className="text-xs text-green-300 animate-pulse mt-1">Batting</span>}
         </div>
       </div>
       
       {/* Innings Indicator Bar */}
-      <div className="w-full h-1 bg-slate-700 mt-4 rounded-full overflow-hidden flex">
+      <div className="w-full h-1 bg-slate-700 mt-4 rounded-full overflow-hidden flex" role="progressbar" aria-valuenow={status === GameStatus.INNINGS_1 ? 0 : 50} aria-valuemin={0} aria-valuemax={100} aria-label="Match Progress">
         <div 
           className={`h-full transition-all duration-500 ${TEAMS.INDIA.bgColor}`} 
           style={{ width: status === GameStatus.INNINGS_1 ? '100%' : (status === GameStatus.MENU ? '50%' : '0%') }}
@@ -55,8 +54,8 @@ const ScoreBoard: React.FC<ScoreBoardProps> = ({ indiaScore, pakistanScore, stat
           style={{ width: status === GameStatus.INNINGS_2 ? '100%' : (status === GameStatus.MENU ? '50%' : '0%') }}
         ></div>
       </div>
-    </div>
+    </section>
   );
 };
 
-export default ScoreBoard;
+export default React.memo(ScoreBoard);

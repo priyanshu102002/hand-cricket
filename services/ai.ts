@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { GameState, Player } from "../types";
+import { COACH_TIPS_FALLBACK } from "../constants";
 
 // Initialize Gemini Client
 // Note: In a production environment, ensure API_KEY is set. 
@@ -41,13 +42,15 @@ export const generateAICommentary = async (
     
     return response.text?.trim() || null;
   } catch (error) {
-    console.error("Gemini Commentary Error:", error);
+    // Fail silently for commentary, fallback is already handled in UI
+    console.debug("Gemini Commentary unavailable, using static fallback.");
     return null;
   }
 };
 
 export const generateCoachTip = async (gameState: GameState): Promise<string | null> => {
-  if (!ai) return null;
+  // Use fallback if AI is not initialized or if previous calls failed
+  if (!ai) return getRandomFallbackTip();
 
   try {
     const { indiaScore, pakistanScore, target, status, balls } = gameState;
@@ -73,9 +76,13 @@ export const generateCoachTip = async (gameState: GameState): Promise<string | n
       contents: prompt,
     });
 
-    return response.text?.trim() || null;
+    return response.text?.trim() || getRandomFallbackTip();
   } catch (error) {
-    console.warn("Gemini Coach Error:", error);
-    return null;
+    console.warn("Gemini Coach unavailable (Quota/Error), using fallback.");
+    return getRandomFallbackTip();
   }
+};
+
+const getRandomFallbackTip = () => {
+  return COACH_TIPS_FALLBACK[Math.floor(Math.random() * COACH_TIPS_FALLBACK.length)];
 };

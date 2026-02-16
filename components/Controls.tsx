@@ -36,4 +36,4 @@ const Controls: React.FC<ControlsProps> = ({ onPlay, disabled, label }) => {
   );
 };
 
-export default Controls;
+export default React.memo(Controls);
