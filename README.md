@@ -1,20 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Hand Cricket: India vs Pakistan (AI Powered)
 
-# Run and deploy your AI Studio app
+## Challenge Vertical: Entertainment & Games
 
-This contains everything you need to run your app locally.
+### Overview
+This is a browser-based implementation of the classic "Hand Cricket" game, enhanced with Google's Gemini API. The player takes on the role of Team India playing against Pakistan. The application demonstrates how Generative AI can transform a simple static game into a dynamic experience by providing real-time, context-aware commentary and strategic coaching advice.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1s0ivV6Tpa294Hu5x51jzwCAUhHdhkXqa
+### Features
+*   **Smart Assistant (Coach Gemini)**: Analyzes the game state (score, wickets, balls remaining) to provide strategic advice to the player.
+*   **Dynamic Commentary**: Uses Gemini to generate exciting, cricket-style commentary for boundaries and wickets, replacing repetitive static text.
+*   **Accessibility**: Designed with ARIA labels and keyboard navigation support.
+*   **Responsive UI**: Built with React and Tailwind CSS for a seamless mobile and desktop experience.
 
-## Run Locally
+### How it Works
+1.  **Game Loop**: The core logic is a React state machine handling innings, scoring, and wicket mechanics.
+2.  **AI Integration**:
+    *   When a significant event occurs (4, 6, Wicket), the app sends the event context to the Gemini API.
+    *   Gemini generates a unique commentary line which is streamed to the UI.
+    *   Periodically, the AI analyzes the required run rate and wickets in hand to generate a "Coach's Tip".
+3.  **Fallback Mechanism**: To ensure efficiency and offline capability, the system seamlessly falls back to static commentary if the API is unavailable or slow.
 
-**Prerequisites:**  Node.js
+### Assumptions
+*   The environment provides a valid `process.env.API_KEY` for the Google GenAI SDK.
+*   The game rules follow standard "Hand Cricket" conventions (1-6 inputs, same number = out).
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Tech Stack
+*   **Frontend**: React, TypeScript, Tailwind CSS
+*   **AI**: Google GenAI SDK (`@google/genai`), Gemini 2.5 Flash Model
+*   **Audio**: Web Audio API (No external assets)

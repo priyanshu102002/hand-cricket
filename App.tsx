@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameState, GameStatus, BallOutcome, Player } from './types';
 import { getRandomCommentary } from './constants';
 import ScoreBoard from './components/ScoreBoard';
 import Controls from './components/Controls';
 import GameFeed from './components/GameFeed';
 import ResultModal from './components/ResultModal';
+import CoachTip from './components/CoachTip';
 import { playSound } from './utils/audio';
+import { generateAICommentary, generateCoachTip } from './services/ai';
 
 const INITIAL_STATE: GameState = {
   status: GameStatus.MENU,
@@ -19,6 +21,8 @@ const INITIAL_STATE: GameState = {
 
 function App() {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
+  const [coachTip, setCoachTip] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
   // LOGIC TO FAVOR INDIA (THE USER)
   const getComputerMove = (
@@ -31,71 +35,75 @@ function App() {
     let cpuMove = Math.floor(Math.random() * 6) + 1;
 
     // SCENARIO 1: User is Batting (India), CPU is Bowling (Pakistan)
-    // Goal: CPU should be bad at guessing User's move to let India score.
     if (currentBatter === 'India') {
-      // If CPU accidentally matches User (Wicket), small chance to "fumble" and change number
-      // unless India is scoring unreasonably high (>100).
+      // User is Batting. CPU is Bowling.
+      // India needs to score high.
+      // If natural RNG causes a wicket (cpuMove === playerMove), prevent it most of the time.
       if (cpuMove === playerMove) {
-        const survivalChance = 0.5; // 50% chance to survive a wicket
-        if (Math.random() < survivalChance) {
-          let newMove = Math.floor(Math.random() * 6) + 1;
-          // Ensure new move is different
-          while (newMove === playerMove) {
-             newMove = Math.floor(Math.random() * 6) + 1;
+          // 95% chance to save the wicket to ensure India posts a big total
+          if (Math.random() < 0.95) {
+             // Pick a different number deterministically
+             cpuMove = (playerMove % 6) + 1;
           }
-          cpuMove = newMove;
-        }
       }
     } 
     // SCENARIO 2: User is Bowling (India), CPU is Batting (Pakistan)
-    // Goal: CPU should be prone to getting out or scoring low.
     else if (currentBatter === 'Pakistan') {
-        // If CPU is NOT matching User (Safe), chance to "misread" and pick User's number (Wicket)
-        if (cpuMove !== playerMove) {
-             // If Pakistan is close to winning, increase choke probability
-             let chokeChance = 0.2; 
-             if (target && (target - pakistanScore < 15)) {
-                 chokeChance = 0.5;
-             }
-             
-             if (Math.random() < chokeChance) {
-                 cpuMove = playerMove; // Suicide move (Wicket)
-             }
+        // Pakistan is Batting. User is Bowling.
+        // India needs to win. Pakistan must lose.
+        
+        // If we are in the 2nd innings (target exists)
+        if (target !== null) {
+            const runsNeeded = target - pakistanScore;
+            
+            // If Pakistan gets anywhere close (within 10 runs), FORCE WICKET
+            if (runsNeeded <= 10) {
+               return playerMove; // Matches user move -> Wicket
+            }
+
+            // Even if not close, make them prone to wickets (40% chance to just give up wicket)
+            if (Math.random() < 0.4) {
+                return playerMove;
+            }
         }
     }
-
     return cpuMove;
+  };
+
+  const updateCoachTip = async (newState: GameState) => {
+    // Only fetch tip occasionally to save quota and not be annoying
+    if (Math.random() > 0.3) return; 
+    
+    setIsAiLoading(true);
+    const tip = await generateCoachTip(newState);
+    if (tip) setCoachTip(tip);
+    setIsAiLoading(false);
   };
 
   const startGame = () => {
     playSound.click();
-    setGameState({
+    const newState = {
       ...INITIAL_STATE,
       status: GameStatus.INNINGS_1,
-    });
+    };
+    setGameState(newState);
+    setCoachTip("Welcome to the match! Start by building a solid inning.");
   };
 
-  const playBall = (userMove: number) => {
+  const playBall = async (userMove: number) => {
     playSound.click();
 
     if (gameState.status !== GameStatus.INNINGS_1 && gameState.status !== GameStatus.INNINGS_2) return;
-
-    // INNINGS 1: India Bat (User), Pakistan Bowl (CPU)
-    // INNINGS 2: Pakistan Bat (CPU), India Bowl (User)
     
     const currentBatter: Player = gameState.status === GameStatus.INNINGS_1 ? 'India' : 'Pakistan';
     const currentBowler: Player = gameState.status === GameStatus.INNINGS_1 ? 'Pakistan' : 'India';
 
-    // If User is India (Batting), User Input = batterMove
-    // If User is India (Bowling), User Input = bowlerMove
     let batterMove, bowlerMove;
 
     if (currentBatter === 'India') {
-        // User is Batting
         batterMove = userMove;
         bowlerMove = getComputerMove(userMove, currentBatter, gameState.indiaScore, gameState.pakistanScore, gameState.target);
     } else {
-        // User is Bowling
         bowlerMove = userMove;
         batterMove = getComputerMove(userMove, currentBatter, gameState.indiaScore, gameState.pakistanScore, gameState.target);
     }
@@ -104,17 +112,12 @@ function App() {
     const runsScored = isOut ? 0 : batterMove;
 
     // Play Sounds
-    if (isOut) {
-        setTimeout(() => playSound.wicket(), 100);
-    } else if (runsScored === 6) {
-        setTimeout(() => playSound.six(), 100);
-    } else if (runsScored === 4) {
-        setTimeout(() => playSound.four(), 100);
-    } else {
-        setTimeout(() => playSound.hit(), 100);
-    }
+    if (isOut) setTimeout(() => playSound.wicket(), 100);
+    else if (runsScored >= 4) setTimeout(() => runsScored === 6 ? playSound.six() : playSound.four(), 100);
+    else setTimeout(() => playSound.hit(), 100);
 
-    const commentary = getRandomCommentary(runsScored, isOut);
+    // Initial static commentary (Immediate feedback)
+    let commentary = getRandomCommentary(runsScored, isOut);
 
     const newBall: BallOutcome = {
       batter: currentBatter,
@@ -126,67 +129,71 @@ function App() {
       commentary
     };
 
-    setGameState(prev => {
-      let nextStatus = prev.status;
-      let nextIndiaScore = prev.indiaScore;
-      let nextPakistanScore = prev.pakistanScore;
-      let nextWinner = prev.winner;
-      let nextTarget = prev.target;
+    // Calculate next state
+    // Explicitly type nextStatus as GameStatus so it doesn't get narrowed to just INNINGS_1 | INNINGS_2
+    let nextStatus: GameStatus = gameState.status;
+    let nextIndiaScore = gameState.indiaScore;
+    let nextPakistanScore = gameState.pakistanScore;
+    let nextWinner = gameState.winner;
+    let nextTarget = gameState.target;
 
-      // Update Scores
-      if (!isOut) {
-        if (currentBatter === 'India') {
-          nextIndiaScore += runsScored;
-        } else {
-          nextPakistanScore += runsScored;
-        }
+    if (!isOut) {
+      if (currentBatter === 'India') nextIndiaScore += runsScored;
+      else nextPakistanScore += runsScored;
+    }
+
+    if (gameState.status === GameStatus.INNINGS_1) {
+      if (isOut) {
+          nextStatus = GameStatus.INNINGS_BREAK;
+          nextTarget = nextIndiaScore + 1;
       }
-
-      // Check Inning/Game End Conditions
-      if (prev.status === GameStatus.INNINGS_1) {
-        if (isOut) {
-            // Innings 1 Over
-            nextStatus = GameStatus.INNINGS_BREAK;
-            nextTarget = nextIndiaScore + 1;
-        }
-      } else if (prev.status === GameStatus.INNINGS_2) {
-        // Check win condition for Pakistan
-        if (nextPakistanScore >= (prev.target || 0)) {
-            nextStatus = GameStatus.GAME_OVER;
-            nextWinner = 'Pakistan';
-            setTimeout(() => playSound.win(), 500); // Sad win sound? Or just end sound
-        } else if (isOut) {
-            // Pakistan All Out
-            nextStatus = GameStatus.GAME_OVER;
-            if (nextPakistanScore < (prev.target || 0) - 1) {
-                nextWinner = 'India';
-                setTimeout(() => playSound.win(), 500);
-            } else if (nextPakistanScore === (prev.target || 0) - 1) {
-                // Tie scenario (scores level and out)
-                nextWinner = null; // Tie
-                setTimeout(() => playSound.win(), 500);
-            } else {
-                // If scores are equal but wicket falls, match isn't necessarily over in normal cricket 
-                // but in hand cricket usually "all out" ends it.
-                // If scores were level and out happens -> Tie.
-                 if (nextPakistanScore === (prev.target || 0) - 1) nextWinner = null;
-                 else nextWinner = 'India';
-                 setTimeout(() => playSound.win(), 500);
-            }
-        }
+    } else if (gameState.status === GameStatus.INNINGS_2) {
+      if (nextPakistanScore >= (gameState.target || 0)) {
+          // This should theoretically not happen given our rigorous rigging, but handle it just in case
+          nextStatus = GameStatus.GAME_OVER;
+          nextWinner = 'Pakistan';
+          setTimeout(() => playSound.win(), 500);
+      } else if (isOut) {
+          nextStatus = GameStatus.GAME_OVER;
+          // Since India must win, we ensure logic falls here
+          nextWinner = 'India';
+          setTimeout(() => playSound.win(), 500);
       }
+    }
 
-      return {
-        ...prev,
-        status: nextStatus,
-        indiaScore: nextIndiaScore,
-        pakistanScore: nextPakistanScore,
-        target: nextTarget,
-        balls: [...prev.balls, newBall],
-        lastBall: newBall,
-        winner: nextWinner
-      };
-    });
+    const nextState = {
+      ...gameState,
+      status: nextStatus,
+      indiaScore: nextIndiaScore,
+      pakistanScore: nextPakistanScore,
+      target: nextTarget,
+      balls: [...gameState.balls, newBall],
+      lastBall: newBall,
+      winner: nextWinner
+    };
+
+    setGameState(nextState);
+
+    // Trigger AI Features (Commentary + Coach)
+    // We update the state with AI commentary asynchronously
+    if (isOut || runsScored >= 4 || Math.random() < 0.2) {
+      // Fetch dynamic commentary for significant events
+      generateAICommentary(currentBatter, currentBowler, runsScored, isOut, 
+        currentBatter === 'India' ? `Score: ${nextIndiaScore}` : `Chase: ${nextPakistanScore}/${nextTarget}`
+      ).then(aiText => {
+        if (aiText) {
+          setGameState(prev => ({
+            ...prev,
+            lastBall: prev.lastBall ? { ...prev.lastBall, commentary: aiText } : null
+          }));
+        }
+      });
+    }
+
+    // Update Coach Tip occasionally
+    if (!isOut && nextStatus !== GameStatus.GAME_OVER) {
+       updateCoachTip(nextState);
+    }
   };
 
   const startInnings2 = () => {
@@ -196,6 +203,7 @@ function App() {
         status: GameStatus.INNINGS_2,
         lastBall: null // Reset display for clean start
     }));
+    setCoachTip("Defend the total! Mix up your deliveries.");
   };
 
   const restartGame = () => {
@@ -204,11 +212,13 @@ function App() {
         ...INITIAL_STATE,
         status: GameStatus.INNINGS_1
     });
+    setCoachTip(null);
   };
 
   const goToMenu = () => {
       playSound.click();
       setGameState(INITIAL_STATE);
+      setCoachTip(null);
   }
 
   // Menu Screen
@@ -221,6 +231,9 @@ function App() {
                     HAND CRICKET
                 </h1>
                 <h2 className="text-xl font-bold text-slate-400 tracking-widest">INDIA VS PAKISTAN</h2>
+                <div className="mt-2 inline-flex items-center px-2 py-1 bg-indigo-900/50 rounded border border-indigo-500/30">
+                  <span className="text-xs text-indigo-300">✨ AI Powered Assistant</span>
+                </div>
             </div>
 
             <div className="bg-slate-800 p-8 rounded-3xl border border-slate-700 shadow-2xl">
@@ -244,8 +257,6 @@ function App() {
                     Start Match
                 </button>
             </div>
-            
-            <p className="text-xs text-slate-600">Built with React & Tailwind</p>
         </div>
       </div>
     );
@@ -255,13 +266,21 @@ function App() {
     <div className="min-h-screen bg-slate-900 flex flex-col items-center p-4 max-w-lg mx-auto relative">
       {/* Header & Controls */}
       <header className="w-full flex justify-between items-center py-4 mb-2">
-        <button onClick={goToMenu} className="text-xs text-slate-500 hover:text-white transition-colors">
+        <button 
+          onClick={goToMenu} 
+          className="text-xs text-slate-500 hover:text-white transition-colors"
+          aria-label="Back to Menu"
+        >
             ← Menu
         </button>
         <h1 className="text-xl font-bold text-slate-400 uppercase tracking-widest">
             {gameState.status === GameStatus.INNINGS_1 ? '1st Innings' : '2nd Innings'}
         </h1>
-        <button onClick={restartGame} className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors">
+        <button 
+          onClick={restartGame} 
+          className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors"
+          aria-label="Restart Game"
+        >
             Restart ↻
         </button>
       </header>
@@ -273,6 +292,9 @@ function App() {
         status={gameState.status}
         target={gameState.target}
       />
+
+      {/* AI Coach Tip */}
+      <CoachTip tip={coachTip} loading={isAiLoading} />
 
       {/* Game Feed Area */}
       <div className="w-full flex-1 flex flex-col justify-center">
